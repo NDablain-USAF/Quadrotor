@@ -13,9 +13,8 @@ The system architecture consists of a cascade of 3 controllers:
   the design process. This controller accepts quadrotor euler angles as input and outputs desired torques which can be decomposed into motor angular rates. This decomposition is done using emperical data on propeller performance provided by the manufacturer 
   APC Propellers that is stored in a lookup table and retrieved depending on the most recent motor angular rate. For sensing quadrotor body angular rates and calculating euler angles a BMI088 6 axis accelerometer/gyro is connected to the Arduino Giga.
 
-  At the highest level a LQG controller is again used for the same reasons as at the intermediate level. Here inertial coordinates are provided as reference inputs by the user and thrust and quadrotor euler angles are output. A PA1616S GPS module is used to measure
-  inertial position states with the measurements of the BMI088 accelerometers being provided as inputs to the system. 
-  
+  At the highest level a LQG controller is again used for the same reasons as at the intermediate level. Here inertial coordinates are provided as reference inputs by the user and thrust and quadrotor euler angles are output to the intermediate level controller. 
+  A PA1616S GPS module is used to measure inertial position states with the measurements of the BMI088 accelerometers being used as inputs to the system. 
 
-of quadrotor dynamics performed in Matlab/SIMULINK. Control is split between an inner loop for the quadrotor attitude and an outer loop for the inertial position.
-
+A 22.2V 2900mAh 6S Lithium Polymer battery is used to power the 4 motors, it enables a flight time of 8 minutes. A 6V Nickel - Metal Hydride (NiMH) battery is used to power the Arduino Giga, PA1616S, BMI088, 4 encoders, and 4 2N2222 transistors. The propeller is
+a 10x4.5MR-B4 from APC propellers. It is capable of generating lb thrust at rpm , APC propellers provides extensive emperical test data for each of their propellers. The frame is made of pine wood.
