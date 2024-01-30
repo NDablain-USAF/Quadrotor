@@ -8,8 +8,13 @@ The system architecture consists of a cascade of 3 controllers:
   The hardware implementation of this is with an Arduino Giga microcontroller sending Pulse Width Modulation (PWM) signals to a 2N2222 NPN transistor that is connected to the base of a NTE2536 NPN transistor in series with a RS555-EN 24V DC motor. The motor is
   outfitted with a 2 channel hall effect encoder that is used to measure motor angular rate. 
   
-  At the intermediate level optimal control is implemented with a Linear Quadratic Gaussian (LQG) controller. This controller used a servo mechanism Linear Quadratic Regulator (LQR) for disturbance rejection and output tracking and a Kalman filter for state
-  estimation.
+  At the intermediate level optimal control is implemented with a Linear Quadratic Gaussian (LQG) controller. This controller used a servo mechanism Linear Quadratic Regulator (LQR) for disturbance rejection and output tracking, and a Kalman filter for state
+  estimation. Because there were no requirements for performing complex maneuvers it was acceptable to linearize the quadrotor dynamics around a hover operating point. This allows the controller and estimator gains to be solved offline and greatly simplifies 
+  the design process. This controller accepts quadrotor euler angles as input and outputs desired torques which can be decomposed into motor angular rates. This decomposition is done using emperical data on propeller performance provided by the manufacturer 
+  APC Propellers that is stored in a lookup table and retrieved depending on the most recent motor angular rate. For sensing quadrotor body angular rates and calculating euler angles a BMI088 6 axis accelerometer/gyro is connected to the Arduino Giga.
+
+  At the highest level a LQG controller is again used for the same reasons as at the intermediate level. Here inertial coordinates are provided as reference inputs by the user and thrust and quadrotor euler angles are output. A PA1616S GPS module is used to measure
+  inertial position states with the measurements of the BMI088 accelerometers being provided as inputs to the system. 
   
 
 of quadrotor dynamics performed in Matlab/SIMULINK. Control is split between an inner loop for the quadrotor attitude and an outer loop for the inertial position.
