@@ -22,7 +22,7 @@ void loop() {
       double longitude = convertGeo(longitudeArray,longitudeSize);
       uint8_t altitudeSize = sizeof(altitudeArray)/sizeof(altitudeArray[0]);
       double altitude = convertAlt(altitudeArray,altitudeSize);
-      Displacements(&xN,&xE,latitude,longitude);
+      displacements(&xN,&xE,latitude,longitude);
       
       Serial.print("Displacment North: ");
       Serial.print(xN);
@@ -37,10 +37,10 @@ void loop() {
   }
 }
 
-void Displacements(double *Xn, double *Xe, double latitude, double longitude){
+void displacements(double *Xn, double *Xe, double latitude, double longitude){
   static uint32_t biasControl;
   static double biasLat,biasLong,latitudeLast,longitudeLast;
-  uint31_t r1 = 6378137; // in meters
+  uint32_t r1 = 6378137; // in meters
   uint32_t r2 = 6356752;
   float c[2] = {0.6,0.4};
   latitude = latitudeLast*c[1]+latitude*c[0];
@@ -59,9 +59,7 @@ void Displacements(double *Xn, double *Xe, double latitude, double longitude){
   uint32_t radiusEarth = sqrt((pow(pow(r1,2)*cos(latitude),2)+pow(pow(r2,2)*sin(latitude),2))/(pow(r1*cos(latitude),2)+pow(r2*sin(latitude),2)));
   *Xn = radiusEarth*tan(latitude-biasLat);
   *Xe = -radiusEarth*cos(latitude-biasLat)*tan(longitude-biasLong);
-  }
-  //Serial.println(biasControl);
-  
+  }  
 }
 
 double convertGeo(uint8_t coordinate[],uint8_t coordinateSize){ // Converts array in degrees and months to single value in radians
@@ -109,50 +107,49 @@ double convertAlt(uint8_t coordinate[],uint8_t coordinateSize){
 bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitudeMSL[3]){
   static uint8_t data[1000],messageID[5],UTCTime1[10],UTCTime2[10],latitude1[9],latitude2[9],longitude1[10],longitude2[10],horizontalDilutionOfPrecision[4];
   static uint8_t SV1[2],SV2[2],SV3[2],SV4[2],SV5[2],SV6[2],SV7[2],SV8[2],SV9[2],SV10[2],SV11[2],SV12[2],speedOverGround[4],courseOverGround[6],date[6];
-  static uint8_t index[4],result,checksum1,checksum2,mode1,mode2,status,NSIndicator1,NSIndicator2,EWIndicator1,EWIndicator2,fixIndicator,satellitesUsed[2],unitsMSL;
+  static uint8_t index[4],result,checksum1,mode1,mode2,status,NSIndicator1,NSIndicator2,EWIndicator1,EWIndicator2,fixIndicator,satellitesUsed[2],unitsMSL;
   static uint8_t geoSeparation[4],unitsGeo;
 
-  static uint32_t start;
+  static bool messageIntegrity;
   
   if (Serial1.available()>0){
     uint8_t inbound = Serial1.read();
     if (inbound==36){ // Reset on the $
-      start = millis();
+      uint32_t start = millis();
       for(uint8_t i=0;i<4;i++){
         index[i]=0;
       }
     }
     else if ((inbound==42)||((index[2]>0)&&(index[2]<3))){ // Take * and next two values
-      if (index[2]==1){
+      ++index[2];
+      index[1] = 1;
+      if (index[2]==2){
         checksum1 = inbound;
       }
-      if (index[2]==2){
-        checksum2 = inbound;
-      }
-      if (index[2]==2){
+      if (index[2]==3){
+        uint8_t checksum2 = inbound;
         uint8_t mask = 0b00001111;
         uint8_t result1 = result>>4; // First value in binary
-          if (result1<10){ // If the value in HEX is a numeral (less than 10 in dec)
-            result1+=48; // Add 48 to get its HEX representation
-          }
-          else{ // If the value in HEX is a character
-            result1+=55; // Add 55 to gets its HEX representation
-          }
+        if (result1<10){ // If the value in HEX is a numeral (less than 10 in dec)
+          result1+=48; // Add 48 to get its HEX representation
+        }
+        else{ // If the value in HEX is a character
+          result1+=55; // Add 55 to gets its HEX representation
+        }
         uint8_t result2 = result&mask; // Second value in binary
-          if (result2<10){ // If the value in binary is a numeral (less than 10)
-            result2+=48; // Add 48 to get its Dec representation
-          }
-          else{ // If the value in binary is a character
-            result2+=55; // Corresponding value in Dec
-          }
-        bool messageIntegrity = false;
+        if (result2<10){ // If the value in binary is a numeral (less than 10)
+          result2+=48; // Add 48 to get its Dec representation
+        }
+        else{ // If the value in binary is a character
+          result2+=55; // Corresponding value in Dec
+        }
         if ((result1==checksum1)&&(result2==checksum2)){
           messageIntegrity = true;
         }
-        return(messageIntegrity);
+        else{
+          messageIntegrity = false;
+        }        
       }
-      ++index[2];
-      index[1] = 1;
     }
     else if (index[1]!=1){
       data[index[0]] = inbound;
@@ -325,6 +322,7 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitudeMSL[3]){
     }
     
   }
+  return(messageIntegrity);
 }
 
 bool fix(){
