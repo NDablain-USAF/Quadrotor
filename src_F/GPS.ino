@@ -22,18 +22,11 @@ void loop() {
       double longitude = convertGeo(longitudeArray,longitudeSize);
       uint8_t altitudeSize = sizeof(altitudeArray)/sizeof(altitudeArray[0]);
       double altitude = convertAlt(altitudeArray,altitudeSize);
-      displacements(&xN,&xE,latitude,longitude);
-      
-      Serial.print("Displacment North: ");
-      Serial.print(xN);
-      Serial.print(" , ");
-      Serial.print("Displacment East: ");
-      Serial.print(xE);
-      Serial.print(" , ");
-      Serial.print("Height: ");
-      Serial.println(altitude);
-      
+      displacements(&xN,&xE,latitude,longitude);  
     }
+  }
+  else {
+    Serial.println("Fixing");
   }
 }
 
@@ -42,23 +35,32 @@ void displacements(double *Xn, double *Xe, double latitude, double longitude){
   static double biasLat,biasLong,latitudeLast,longitudeLast;
   uint32_t r1 = 6378137; // in meters
   uint32_t r2 = 6356752;
-  float c[2] = {0.6,0.4};
+  float c[2] = {0.8,0.2};
   latitude = latitudeLast*c[1]+latitude*c[0];
   longitude = longitudeLast*c[1]+longitude*c[0];
   latitudeLast = latitude;
   longitudeLast = longitude;
-  if (biasControl==5000){
+  if (biasControl==50000){
     biasLat = latitude;
     biasLong = longitude;
     ++biasControl;
   }
-  else if (biasControl<5000){
+  else if (biasControl<50000){
     ++biasControl;
+    if ((biasControl==10000)||(biasControl==30000)){
+      Serial.println("Calibrating");
+    }
   }
   else {
-  uint32_t radiusEarth = sqrt((pow(pow(r1,2)*cos(latitude),2)+pow(pow(r2,2)*sin(latitude),2))/(pow(r1*cos(latitude),2)+pow(r2*sin(latitude),2)));
+  uint32_t radiusEarth = sqrt((pow(pow(r1,2)*cos(biasLat),2)+pow(pow(r2,2)*sin(biasLat),2))/(pow(r1*cos(biasLat),2)+pow(r2*sin(biasLat),2)));
   *Xn = radiusEarth*tan(latitude-biasLat);
-  *Xe = -radiusEarth*cos(latitude-biasLat)*tan(longitude-biasLong);
+  *Xe = -radiusEarth*cos(biasLat)*tan(longitude-biasLong);
+  
+  Serial.print("Displacment North: ");
+  Serial.print(*Xn);
+  Serial.print(" , ");
+  Serial.print("Displacment East: ");
+  Serial.println(*Xe);
   }  
 }
 
