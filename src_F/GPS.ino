@@ -9,20 +9,19 @@ void setup() {
 }
 
 void loop() {
-  static uint8_t latitudeArray[9],longitudeArray[10],altitudeArray[3];
-  static double xN,xE,h;
+  static uint8_t latitudeArray[9],longitudeArray[10],altitudeArray[3],EWIndicator,NSIndicator;
   
   bool FIX = fix();
   if (FIX==true){
-    bool Integrity = readGPS(latitudeArray,longitudeArray,altitudeArray);
+    bool Integrity = readGPS(latitudeArray,longitudeArray,altitudeArray,&NSIndicator,&EWIndicator);
     if (Integrity>0){
       uint8_t latitudeSize = sizeof(latitudeArray)/sizeof(latitudeArray[0]); // Convert arrays to doubles for calculations
-      double latitude = convertGeo(latitudeArray,latitudeSize);
+      double latitude = convertGeo(latitudeArray,latitudeSize,NSIndicator);
       uint8_t longitudeSize = sizeof(longitudeArray)/sizeof(longitudeArray[0]);
-      double longitude = convertGeo(longitudeArray,longitudeSize);
+      double longitude = convertGeo(longitudeArray,longitudeSize,EWIndicator);
       uint8_t altitudeSize = sizeof(altitudeArray)/sizeof(altitudeArray[0]);
       double altitude = convertAlt(altitudeArray,altitudeSize);
-      displacements(&xN,&xE,latitude,longitude);  
+      displacements(latitude,longitude,altitude);
     }
   }
   else {
@@ -30,20 +29,18 @@ void loop() {
   }
 }
 
-void displacements(double *Xn, double *Xe, double latitude, double longitude){
+void displacements(double latitude, double longitude, double altitude){
   static uint32_t biasControl;
-  static double biasLat,biasLong,latitudeLast,longitudeLast;
-  uint32_t r1 = 6378137; // in meters
-  uint32_t r2 = 6356752;
-  float c[2] = {0.8,0.2};
-  latitude = latitudeLast*c[1]+latitude*c[0];
-  longitude = longitudeLast*c[1]+longitude*c[0];
-  latitudeLast = latitude;
-  longitudeLast = longitude;
+  static uint32_t timelast;
+  static double xE, xN, thetalast, philast;
+  double r1 = 6378137; // in meters
+  double r2 = 6356752;
+  double radiusEarth = sqrt((pow(pow(r1,2)*cos(latitude),2)+pow(pow(r2,2)*sin(latitude),2))/(pow(r1*cos(latitude),2)+pow(r2*sin(latitude),2)));
+  double R = radiusEarth+altitude;
   if (biasControl==50000){
-    biasLat = latitude;
-    biasLong = longitude;
     ++biasControl;
+    xE = R*longitude*sin(latitude);
+    xN = -R*latitude;
   }
   else if (biasControl<50000){
     ++biasControl;
@@ -52,19 +49,31 @@ void displacements(double *Xn, double *Xe, double latitude, double longitude){
     }
   }
   else {
-  uint32_t radiusEarth = sqrt((pow(pow(r1,2)*cos(biasLat),2)+pow(pow(r2,2)*sin(biasLat),2))/(pow(r1*cos(biasLat),2)+pow(r2*sin(biasLat),2)));
-  *Xn = radiusEarth*tan(latitude-biasLat);
-  *Xe = -radiusEarth*cos(biasLat)*tan(longitude-biasLong);
-  
-  Serial.print("Displacment North: ");
-  Serial.print(*Xn);
-  Serial.print(" , ");
-  Serial.print("Displacment East: ");
-  Serial.println(*Xe);
+    if (isnan(xE)==1){
+      xE = 0;
+    }
+    if (isnan(xN)==1){
+      xN = 0;
+    }
+    double theta = abs(latitude);
+    double phi = abs(longitude);
+    xE += (R*(phi-philast)*sin(theta));
+    xN += (R*(theta-thetalast));
+    thetalast = theta;
+    philast = phi;
+    
+    Serial.print("Displacment North: ");
+    Serial.print(xN);
+    Serial.print(" , ");
+    Serial.print("Displacment East: ");
+    Serial.print(xE);
+    Serial.print(" , ");
+    Serial.print("Altitude: ");
+    Serial.println(altitude);
   }  
 }
 
-double convertGeo(uint8_t coordinate[],uint8_t coordinateSize){ // Converts array in degrees and months to single value in radians
+double convertGeo(uint8_t coordinate[],uint8_t coordinateSize,uint8_t indicator){ // Converts array in degrees and months to single value in radians
   double minutes,degrees;
   uint8_t digitCount;
   for (uint8_t i=0;i<coordinateSize;i++){ // Find the number of digits to the right of the decimal
@@ -83,7 +92,11 @@ double convertGeo(uint8_t coordinate[],uint8_t coordinateSize){ // Converts arra
       degrees+=((coordinate[i]-48)*pow(10,i-(digitCount+3)));
     }
   }
-  double coordinateConverted = (degrees+(minutes/60))*(PI/180);
+  int8_t sign = -1;
+  if ((indicator==78)||(indicator==69)){ // Positive latitude & longitude measure N & E
+    sign = 1;
+  }
+  double coordinateConverted = (degrees+(minutes/60))*(PI/180)*sign;
   return(coordinateConverted);
 }
 
@@ -106,10 +119,10 @@ double convertAlt(uint8_t coordinate[],uint8_t coordinateSize){
   return(coordinateConverted);
 }
 
-bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitudeMSL[3]){
+bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitude[3],uint8_t* NSIndicator1,uint8_t* EWIndicator1){
   static uint8_t data[1000],messageID[5],UTCTime1[10],UTCTime2[10],latitude1[9],latitude2[9],longitude1[10],longitude2[10],horizontalDilutionOfPrecision[4];
   static uint8_t SV1[2],SV2[2],SV3[2],SV4[2],SV5[2],SV6[2],SV7[2],SV8[2],SV9[2],SV10[2],SV11[2],SV12[2],speedOverGround[4],courseOverGround[6],date[6];
-  static uint8_t index[4],result,checksum1,mode1,mode2,status,NSIndicator1,NSIndicator2,EWIndicator1,EWIndicator2,fixIndicator,satellitesUsed[2],unitsMSL;
+  static uint8_t index[4],result,checksum1,mode1,mode2,status,NSIndicator2,EWIndicator2,fixIndicator,satellitesUsed[2],unitsMSL;
   static uint8_t geoSeparation[4],unitsGeo;
 
   static bool messageIntegrity;
@@ -193,7 +206,7 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitudeMSL[3]){
 
       else if (index[3]==3){
         if (sum==358){
-          NSIndicator1 = data[index[0]];
+          *NSIndicator1 = data[index[0]];
         }
         else if (sum==370){
           SV1[abs(index[0]-11)] = data[index[0]];
@@ -217,7 +230,7 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitudeMSL[3]){
 
       else if (index[3]==5){
         if (sum==358){
-          EWIndicator1 = data[index[0]];
+          *EWIndicator1 = data[index[0]];
         }
         else if (sum==370){
           SV3[abs(index[0]-17)] = data[index[0]];
@@ -241,7 +254,7 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitudeMSL[3]){
 
       else if (index[3]==7){
         if (sum==358){
-          satellitesUsed[abs(index[0]-44)] = data[index[0]];
+          satellitesUsed[abs(index[0]-45)] = data[index[0]];
         }
         else if (sum==370){
           SV5[abs(index[0]-23)] = data[index[0]];
@@ -253,7 +266,7 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitudeMSL[3]){
 
       else if (index[3]==8){
         if (sum==358){
-          horizontalDilutionOfPrecision[abs(index[0]-49)] = data[index[0]];
+          horizontalDilutionOfPrecision[abs(index[0]-50)] = data[index[0]];
         }
         else if (sum==370){
           SV6[abs(index[0]-26)] = data[index[0]];
@@ -265,7 +278,7 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitudeMSL[3]){
 
       else if (index[3]==9){
         if (sum==358){
-          altitudeMSL[abs(index[0]-53)] = data[index[0]];
+          altitude[abs(index[0]-54)] = data[index[0]];
         }
         else if (sum==370){
           SV7[abs(index[0]-29)] = data[index[0]];
@@ -289,7 +302,7 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitudeMSL[3]){
 
       else if (index[3]==11){
         if (sum==358){
-          geoSeparation[abs(index[0]-60)] = data[index[0]];
+          geoSeparation[abs(index[0]-61)] = data[index[0]];
         }
         else if (sum==370){
           SV9[abs(index[0]-35)] = data[index[0]];
