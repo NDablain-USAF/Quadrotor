@@ -1,19 +1,47 @@
 const uint8_t FIX_PIN = 3;
 const uint8_t SYNC_PIN = 7;
 
+byte setBaud9600[15] = {36,80,77,84,75,50,53,49,44,48,42,50,56,13,10}; // 9600 baud rate, default on cold start
+////////////////////////$  P  M  T  K  2  5  1  ,  0  *  2  8  CR LF
+byte setBaud38400[19] = {36,80,77,84,75,50,53,49,44,51,56,52,48,48,42,50,55,13,10}; //38400 baud rate
+/////////////////////////$  P  M  T  K  2  5  1  ,  3  8  4  0  0  *  2  7  CR LF
+byte setBaud115200[20] = {36,80,77,84,75,50,53,49,44,49,49,53,50,48,48,42,49,70,13,10}; //115200 baud rate
+//////////////////////////$  P  M  T  K  2  5  1  ,  1  1  5  2  0  0  *  1  F  CR LF
+byte setUpdate10[25] = {36,80,77,84,75,51,48,48,44,49,48,48,44,48,44,48,44,48,44,48,42,50,67,13,10}; // 10Hz data rate
+////////////////////////$  P  M  T  K  5  0  0  ,  1  0  0  ,  0  ,  0  ,  0  ,  0  *  2  C  CR LF
+byte queryUpdate[13] = {36,80,77,84,75,52,48,48,42,51,54,13,10}; // Ask for update rate
+////////////////////////$  P  M  T  K  5  0  0  *  3  6  CR LF
+byte setOutput[51] = {36,80,77,84,75,51,49,52,44,48,44,48,44,48,44,49,44,48,44,48,44,48,44,48,44,48,44,48,44,48,44,48,44,48,44,48,44,48,44,48,44,48,44,48,44,48,42,50,57
+,13,10}; // Only enable GGA
+
+
 void setup() {
-  Serial.begin(9600);  
-  Serial1.begin(9600);
+  Serial.begin(9600);
+  /* Run this section on cold start
+  Serial1.begin(9600); 
+  Serial1.write(setBaud115200,20);
+  delay(1000);
+  Serial1.end();
+  delay(1000);
+  */
+  Serial1.begin(115200);
+  delay(1000);
+  Serial1.write(setUpdate10,25);
+  delay(1000);
+  Serial1.write(setOutput,51);
+  delay(1000);
+
   pinMode(FIX_PIN, INPUT);
   pinMode(SYNC_PIN, INPUT);
 }
 
 void loop() {
-  static uint8_t latitudeArray[9],longitudeArray[10],altitudeArray[3],EWIndicator,NSIndicator;
-  
+  static bool Integrity;
+  static uint8_t latitudeArray[9],longitudeArray[10],altitudeArray[5],EWIndicator,NSIndicator;
+
   bool FIX = fix();
   if (FIX==true){
-    bool Integrity = readGPS(latitudeArray,longitudeArray,altitudeArray,&NSIndicator,&EWIndicator);
+    Integrity = readGPS(latitudeArray,longitudeArray,altitudeArray,&NSIndicator,&EWIndicator);
     if (Integrity>0){
       uint8_t latitudeSize = sizeof(latitudeArray)/sizeof(latitudeArray[0]); // Convert arrays to doubles for calculations
       double latitude = convertGeo(latitudeArray,latitudeSize,NSIndicator);
@@ -32,45 +60,62 @@ void loop() {
 void displacements(double latitude, double longitude, double altitude){
   static uint32_t biasControl;
   static uint32_t timelast;
-  static double xE, xN, thetalast, philast;
+  static double xE, xN, h, Latitudelast, Longitudelast, Altitudelast, xNlast, xElast, hlast;
+  double c[4] = {0.9,0.995,0.10,0.005}; // Filter constants
   double r1 = 6378137; // in meters
   double r2 = 6356752;
-  double radiusEarth = sqrt((pow(pow(r1,2)*cos(latitude),2)+pow(pow(r2,2)*sin(latitude),2))/(pow(r1*cos(latitude),2)+pow(r2*sin(latitude),2)));
-  double R = radiusEarth+altitude;
+  double cutoff = (0.01)*(PI/180);
+  double Latitude = latitude*c[2] + Latitudelast*c[0];
+  double Longitude = longitude*c[3] + Longitudelast*c[1];
+  double Altitude = altitude*c[2] + Altitudelast*c[0];
+
   if (biasControl==50000){
     ++biasControl;
-    xE = R*longitude*sin(latitude);
-    xN = -R*latitude;
   }
   else if (biasControl<50000){
     ++biasControl;
-    if ((biasControl==10000)||(biasControl==30000)){
+    if ((biasControl==20000)||(biasControl==35000)){
       Serial.println("Calibrating");
     }
   }
   else {
+    if ((abs(Latitude-Latitudelast)>cutoff)||(Latitude==0)||(Latitude==(PI/2))){
+      Latitude = Latitudelast*c[1];
+    }
+    if (abs(Longitude-Longitudelast)>cutoff){
+      Longitude = Longitudelast*c[1];
+    }
+    double radiusEarth = sqrt((pow(pow(r1,2)*cos(Latitude),2)+pow(pow(r2,2)*sin(Latitude),2))/(pow(r1*cos(Latitude),2)+pow(r2*sin(Latitude),2)));
+    double R = radiusEarth+Altitude;
+    xE += (R*(Longitude-Longitudelast)*sin(Latitude));
+    xN += (R*(Latitude-Latitudelast));
+    h += (Altitude-Altitudelast);
+
     if (isnan(xE)==1){
-      xE = 0;
+      xE = xElast;
     }
     if (isnan(xN)==1){
-      xN = 0;
+      xN = xNlast;
     }
-    double theta = abs(latitude);
-    double phi = abs(longitude);
-    xE += (R*(phi-philast)*sin(theta));
-    xN += (R*(theta-thetalast));
-    thetalast = theta;
-    philast = phi;
+    if (isnan(h)==1){
+      h = hlast;
+    }
     
     Serial.print("Displacment North: ");
     Serial.print(xN);
     Serial.print(" , ");
-    Serial.print("Displacment East: ");
+    Serial.print("Displacement East: ");
     Serial.print(xE);
     Serial.print(" , ");
-    Serial.print("Altitude: ");
-    Serial.println(altitude);
-  }  
+    Serial.print("Height: ");
+    Serial.println(h);
+  }
+  xNlast = xN;
+  xElast = xE;
+  hlast = h;
+  Latitudelast = Latitude;
+  Longitudelast = Longitude;
+  Altitudelast = Altitude;
 }
 
 double convertGeo(uint8_t coordinate[],uint8_t coordinateSize,uint8_t indicator){ // Converts array in degrees and months to single value in radians
@@ -119,18 +164,16 @@ double convertAlt(uint8_t coordinate[],uint8_t coordinateSize){
   return(coordinateConverted);
 }
 
-bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitude[3],uint8_t* NSIndicator1,uint8_t* EWIndicator1){
-  static uint8_t data[1000],messageID[5],UTCTime1[10],UTCTime2[10],latitude1[9],latitude2[9],longitude1[10],longitude2[10],horizontalDilutionOfPrecision[4];
-  static uint8_t SV1[2],SV2[2],SV3[2],SV4[2],SV5[2],SV6[2],SV7[2],SV8[2],SV9[2],SV10[2],SV11[2],SV12[2],speedOverGround[4],courseOverGround[6],date[6];
-  static uint8_t index[4],result,checksum1,mode1,mode2,status,NSIndicator2,EWIndicator2,fixIndicator,satellitesUsed[2],unitsMSL;
-  static uint8_t geoSeparation[4],unitsGeo;
-
+bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitude[5],uint8_t* NSIndicator1,uint8_t* EWIndicator1){
+  static uint8_t data[1000],messageID[5],UTCTime1[10],latitude1[9],longitude1[10],horizontalDilutionOfPrecision[4];
+  static uint8_t result,checksum1,fixIndicator,satellitesUsed[2],unitsMSL,geoSeparation[4],unitsGeo;
+  
+  static uint16_t index[4];
   static bool messageIntegrity;
   
   if (Serial1.available()>0){
     uint8_t inbound = Serial1.read();
     if (inbound==36){ // Reset on the $
-      uint32_t start = millis();
       for(uint8_t i=0;i<4;i++){
         index[i]=0;
       }
@@ -184,23 +227,11 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitude[3],uint8
         if (sum==358){ // GPGGA & GPRMC
           UTCTime1[abs(index[0]-15)] = data[index[0]];
         }
-        else if (sum==370){ // GPGSA
-          mode1 = data[index[0]];
-        }
-        else if (sum==377){
-          UTCTime2[abs(index[0]-15)] = data[index[0]];
-        }
       }
 
       else if (index[3]==2){
         if (sum==358){
           latitude[abs(index[0]-25)] = data[index[0]];
-        }
-        else if (sum==370){
-          mode2 = data[index[0]];
-        }
-        else if (sum==377){
-          status = data[index[0]];
         }
       }
 
@@ -208,23 +239,11 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitude[3],uint8
         if (sum==358){
           *NSIndicator1 = data[index[0]];
         }
-        else if (sum==370){
-          SV1[abs(index[0]-11)] = data[index[0]];
-        }
-        else if (sum==377){
-          latitude2[abs(index[0]-27)] = data[index[0]];
-        }
       }
 
       else if (index[3]==4){
         if (sum==358){
           longitude[abs(index[0]-38)] = data[index[0]];
-        }
-        else if (sum==370){
-          SV2[abs(index[0]-14)] = data[index[0]];
-        }
-        else if (sum==377){
-          NSIndicator2 = data[index[0]];
         }
       }
 
@@ -232,23 +251,11 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitude[3],uint8
         if (sum==358){
           *EWIndicator1 = data[index[0]];
         }
-        else if (sum==370){
-          SV3[abs(index[0]-17)] = data[index[0]];
-        }
-        else if (sum==377){
-          longitude2[abs(index[0]-40)] = data[index[0]];
-        }
       }
 
       else if (index[3]==6){
         if (sum==358){
           fixIndicator = data[index[0]];
-        }
-        else if (sum==370){
-          SV4[abs(index[0]-20)] = data[index[0]];
-        }
-        else if (sum==377){
-          EWIndicator2 = data[index[0]];
         }
       }
 
@@ -256,35 +263,17 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitude[3],uint8
         if (sum==358){
           satellitesUsed[abs(index[0]-45)] = data[index[0]];
         }
-        else if (sum==370){
-          SV5[abs(index[0]-23)] = data[index[0]];
-        }
-        else if (sum==377){
-          speedOverGround[abs(index[0]-47)] = data[index[0]];
-        }
       }      
 
       else if (index[3]==8){
         if (sum==358){
           horizontalDilutionOfPrecision[abs(index[0]-50)] = data[index[0]];
         }
-        else if (sum==370){
-          SV6[abs(index[0]-26)] = data[index[0]];
-        }
-        else if (sum==377){
-          courseOverGround[abs(index[0]-54)] = data[index[0]];
-        }
       }    
 
       else if (index[3]==9){
         if (sum==358){
-          altitude[abs(index[0]-54)] = data[index[0]];
-        }
-        else if (sum==370){
-          SV7[abs(index[0]-29)] = data[index[0]];
-        }
-        else if (sum==377){
-          date[abs(index[0]-61)] = data[index[0]];
+          altitude[abs(index[0]-56)] = data[index[0]];
         }
       }    
 
@@ -292,20 +281,11 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitude[3],uint8
         if (sum==358){
           unitsMSL = data[index[0]];
         }
-        else if (sum==370){
-          SV8[abs(index[0]-32)] = data[index[0]];
-        }
-        else if (sum==377){
-          mode2 = data[index[0]];
-        }
       }   
 
       else if (index[3]==11){
         if (sum==358){
           geoSeparation[abs(index[0]-61)] = data[index[0]];
-        }
-        else if (sum==370){
-          SV9[abs(index[0]-35)] = data[index[0]];
         }
       }  
 
@@ -313,29 +293,16 @@ bool readGPS(uint8_t latitude[9],uint8_t longitude[10],uint8_t altitude[3],uint8
         if (sum==358){
           unitsGeo = data[index[0]];
         }
-        else if (sum==370){
-          SV10[abs(index[0]-38)] = data[index[0]];
-        }
       } 
 
-
-      if (index[0]>0){
-        if (index[0]==1){ // For first two values, establish result variable
-          result = data[index[0]]^data[index[0]-1]; // Bitwise xor, order of operation doesn't matter
-        }
-        else if (index[0]>1){ // Once result variable is established, use it
-          result = result^data[index[0]];
-        }
+      if (index[0]==1){ // For first two values, establish result variable
+        result = data[index[0]]^data[index[0]-1]; // Bitwise xor, order of operation doesn't matter
       }
-    /*
-    for (int i=0;i<4;i++){
-      Serial.print((char)horizontalDilutionOfPrecision[i]);
-    }
-    Serial.println();
-    */  
+      else if (index[0]>1){ // Once result variable is established, use it
+        result = result^data[index[0]];
+      }
       ++index[0];
-    }
-    
+    }  
   }
   return(messageIntegrity);
 }
