@@ -83,7 +83,6 @@ void loop() {
         printTime=0;
       }
       printTime++;
-      
     }
   }
   else {
@@ -123,40 +122,6 @@ double displacements(double latitude, double longitude, double altitude, Inertia
 }
 
 double convertGeo(uint8_t coordinate[],uint8_t coordinateSize){ // Converts array in degrees and months to single value in radians
-  double minutes,degrees;
-  uint8_t digitCount;
-  for (uint8_t i=0;i<coordinateSize;i++){ // Find the number of digits to the left of the decimal
-    if (coordinate[i]==46){
-      digitCount = i;
-      break;
-    }
-  }
-  for (uint8_t i=0;i<coordinateSize;i++){
-    if ((i<digitCount)&&(digitCount==4)){ // For values to the right of the decimal, input follows ddmm.mmmm or dddmm.mmmm
-      if (i<2){
-        degrees+=((coordinate[i]-48)*pow(10,digitCount-i-3)); // say digitcount = 4, there will be 2 degree bytes
-      }
-      else{
-        minutes+=(((coordinate[i]-48)*pow(10,digitCount-i-1))/60);
-      }
-    }
-    else if ((i<digitCount)&&(digitCount==5)){
-      if (i<3){
-        degrees+=((coordinate[i]-48)*pow(10,digitCount-i-3));
-      }
-      else{
-        minutes+=(((coordinate[i]-48)*pow(10,digitCount-i-1))/60);
-      }
-    }
-    else if (i>digitCount){ 
-      minutes+=(((coordinate[i]-48)*pow(10,digitCount-i-3))/60);
-    }
-  }
-  double coordinateConverted = (degrees+minutes);//*(PI/180);
-  return(coordinateConverted);
-}
-
-double convertGeo2(uint8_t coordinate[],uint8_t coordinateSize){ // Converts array in degrees and months to single value in radians
   double minutes,degrees;
   uint8_t digitCount;
   for (uint8_t i=0;i<coordinateSize;i++){ // Find the number of digits to the left of the decimal
@@ -256,7 +221,7 @@ bool readGPS(GPSinfo *info){
           for (uint8_t j=0;j<lengthOfEntry[i];j++){
             latitudeArray[j] = data[j+indexOfComma[i-1]+1];
           }
-          double latitude = convertGeo2(latitudeArray,latitudeArraySize);
+          double latitude = convertGeo(latitudeArray,latitudeArraySize);
           info->LATITUDE = latitude;
         }
 
@@ -277,7 +242,7 @@ bool readGPS(GPSinfo *info){
           for (uint8_t j=0;j<lengthOfEntry[i];j++){
             longitudeArray[j] = data[j+indexOfComma[i-1]+1];
           }
-          double longitude = convertGeo2(longitudeArray,longitudeArraySize);
+          double longitude = convertGeo(longitudeArray,longitudeArraySize);
           info->LONGITUDE = longitude;
         }
 
