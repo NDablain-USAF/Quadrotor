@@ -20,9 +20,6 @@ struct Inertialinfo {
   double HEIGHT;
 };
 
-const uint8_t FIX_PIN = 3;
-const uint8_t SYNC_PIN = 7;
-
 uint8_t setBaud9600[15] = {36,80,77,84,75,50,53,49,44,48,42,50,56,13,10}; // 9600 baud rate, default on cold start
 ////////////////////////$  P  M  T  K  2  5  1  ,  0  *  2  8  CR LF
 uint8_t setBaud38400[19] = {36,80,77,84,75,50,53,49,44,51,56,52,48,48,42,50,55,13,10}; //38400 baud rate
@@ -38,7 +35,7 @@ uint8_t setOutput[51] = {36,80,77,84,75,51,49,52,44,48,44,48,44,48,44,49,44,48,4
 
 
 void setup() {
-  Serial.begin(1000000);
+  Serial.begin(250000);
   ///Run this section on cold start
   Serial1.begin(9600); 
   Serial1.write(setBaud115200,20);
@@ -52,26 +49,29 @@ void setup() {
   delay(1000);
   Serial1.write(setOutput,51);
   delay(1000);
-
-  pinMode(FIX_PIN, INPUT);
-  pinMode(SYNC_PIN, INPUT); 
 }
 
 void loop() {
-  static bool Integrity;
   static GPSinfo GPSreading;
   static Inertialinfo InertialPositions;
 
-  bool FIX = fix();
-  if (FIX==true){
-    Integrity = readGPS(&GPSreading);
+  bool Integrity = readGPS(&GPSreading);
+
+  uint8_t FIX = GPSreading.FIX_INDICATOR;
+  
+  if (FIX==2){
     if (Integrity==true){
-      uint8_t positionStatus = displacements(&GPSreading,&InertialPositions);
+      static uint32_t printTime;
+      double latitude = GPSreading.LATITUDE;
+      double longitude = GPSreading.LONGITUDE;
+      double altitude = GPSreading.ALTITUDE;
+      uint8_t positionStatus = displacements(latitude,longitude,altitude,&InertialPositions);
+      
       if (positionStatus==1){
         Serial.println("Calibrating");
       }
-      else {
-        
+      
+      if (printTime==50000){ // Prevent sending too much info to Serial monitor w/o using delay()
         Serial.print("Displacement North: ");
         Serial.print(InertialPositions.DISPLACEMENT_NORTH);
         Serial.print(" , ");
@@ -79,54 +79,46 @@ void loop() {
         Serial.print(InertialPositions.DISPLACEMENT_EAST);
         Serial.print(" , ");
         Serial.print("Height: ");
-        Serial.println(GPSreading.EW_INDICATOR);
-        delay(50);
-        
+        Serial.println(InertialPositions.HEIGHT);
+        printTime=0;
       }
+      printTime++;
+      
     }
   }
   else {
     Serial.println("Fixing");
   }
+  
 }
 
-double displacements(GPSinfo *GPS,Inertialinfo *Inertial){
-  double latitude = GPS->LATITUDE;
-  double longitude = GPS->LONGITUDE;
-  double altitude = GPS->ALTITUDE;
+double displacements(double latitude, double longitude, double altitude, Inertialinfo *Inertial){
   static uint16_t biasControl;
-  static double xE, xN, h, LatitudeLast, LongitudeLast, AltitudeLast, xNLast, xELast, hLast;
+  static double xE, xN, h, latitudeLast, longitudeLast, altitudeLast;
   uint8_t status;
-  uint16_t controlSteps = 1000; // Iterations to filter initial values
-  double c[2] = {0,1}; // Filter constants
-  double precision = 1; // Expand 
-  double precisionAlt = 1;
   double r1 = 6378137; // in meters
   double r2 = 6356752;
-  double Latitude = (latitude*(1/precision))*c[1] + LatitudeLast*c[0];
-  //Serial.println(Latitude);
-  double Longitude = (longitude*(1/precision))*c[1] + LongitudeLast*c[0];
-  double Altitude = (altitude)*c[1] + AltitudeLast*c[0];
-  if (biasControl<=controlSteps){
-    ++biasControl;
+  if (biasControl<=1000){
+    biasControl++;
     status = 1; // Calibrating
   }
   else {
     status = 2; // Running
-    double radiusEarth = sqrt((pow(pow(r1,2)*cos(Latitude*precision),2)+pow(pow(r2,2)*sin(Latitude*precision),2))/(pow(r1*cos(Latitude*precision),2)+pow(r2*sin(Latitude*precision),2)));
-    double R = (radiusEarth+Altitude);
-    //Serial.print();
-    xE += (R*((Longitude-LongitudeLast)*precision)*sin(Latitude*precision));
-    xN += ((R*(Latitude-LatitudeLast))*precision);
-    h += (Altitude-AltitudeLast);
-    Inertial->DISPLACEMENT_NORTH = xN*1e3;
-    Inertial->DISPLACEMENT_EAST = xE*1e3;
+    double radiusEarth = sqrt((pow(pow(r1,2)*cos(latitude),2)+pow(pow(r2,2)*sin(latitude),2))/(pow(r1*cos(latitude),2)+pow(r2*sin(latitude),2)));
+    double R = (radiusEarth+altitude);
+    double deltaphi = longitude-longitudeLast;
+    double deltatheta = latitude-latitudeLast;
+    double deltar = altitude-altitudeLast;
+    xE += (R*deltaphi*sin(latitude));
+    xN += (R*deltatheta);
+    h += (deltar);
+    Inertial->DISPLACEMENT_NORTH = xN;
+    Inertial->DISPLACEMENT_EAST = xE;
     Inertial->HEIGHT = h;
   }
-  LatitudeLast = Latitude;
-  LongitudeLast = Longitude;
-  AltitudeLast = Altitude;
-
+  latitudeLast = latitude;
+  longitudeLast = longitude;
+  altitudeLast = altitude;
   return(status);
 }
 
@@ -160,7 +152,41 @@ double convertGeo(uint8_t coordinate[],uint8_t coordinateSize){ // Converts arra
       minutes+=(((coordinate[i]-48)*pow(10,digitCount-i-3))/60);
     }
   }
-  double coordinateConverted = (degrees+minutes)*(PI/180);
+  double coordinateConverted = (degrees+minutes);//*(PI/180);
+  return(coordinateConverted);
+}
+
+double convertGeo2(uint8_t coordinate[],uint8_t coordinateSize){ // Converts array in degrees and months to single value in radians
+  double minutes,degrees;
+  uint8_t digitCount;
+  for (uint8_t i=0;i<coordinateSize;i++){ // Find the number of digits to the left of the decimal
+    if (coordinate[i]==46){
+      digitCount = i;
+      break;
+    }
+  }
+  for (uint8_t i=0;i<coordinateSize;i++){
+    if ((i<digitCount)&&(digitCount==4)){ // For values to the right of the decimal, input follows ddmm.mmmm or dddmm.mmmm
+      if (i<2){
+        degrees+=((coordinate[i]-48)*pow(10,digitCount-3-i)); // 4-3-(0,1)
+      }
+      else{
+        minutes+=((coordinate[i]-48)*pow(10,digitCount-1-i)); // 4-1-(2,3)
+      }
+    }
+    else if ((i<digitCount)&&(digitCount==5)){
+      if (i<3){
+        degrees+=((coordinate[i]-48)*pow(10,digitCount-3-i)); // 5-3-(0,1,2)
+      }
+      else{
+        minutes+=((coordinate[i]-48)*pow(10,digitCount-1-i)); // 5-1-(3,4)
+      }
+    }
+    else if (i>digitCount){ // for i 5-7
+      minutes+=((coordinate[i]-48)*pow(10,digitCount-i)); // 4-(5,6,7)
+    }
+  }
+  double coordinateConverted = (degrees+(minutes/60))*(PI/180);
   return(coordinateConverted);
 }
 
@@ -230,7 +256,7 @@ bool readGPS(GPSinfo *info){
           for (uint8_t j=0;j<lengthOfEntry[i];j++){
             latitudeArray[j] = data[j+indexOfComma[i-1]+1];
           }
-          double latitude = convertGeo(latitudeArray,latitudeArraySize);
+          double latitude = convertGeo2(latitudeArray,latitudeArraySize);
           info->LATITUDE = latitude;
         }
 
@@ -251,7 +277,7 @@ bool readGPS(GPSinfo *info){
           for (uint8_t j=0;j<lengthOfEntry[i];j++){
             longitudeArray[j] = data[j+indexOfComma[i-1]+1];
           }
-          double longitude = convertGeo(longitudeArray,longitudeArraySize);
+          double longitude = convertGeo2(longitudeArray,longitudeArraySize);
           info->LONGITUDE = longitude;
         }
 
@@ -297,11 +323,8 @@ bool readGPS(GPSinfo *info){
           uint8_t altitudeArraySize = sizeof(altitudeArray)/sizeof(altitudeArray[0]);
           for (uint8_t j=0;j<lengthOfEntry[i];j++){
             altitudeArray[j] = (data[j+indexOfComma[i-1]+1]);
-            Serial.print((char)altitudeArray[j]);
           }
-          Serial.print(" , ");
           double altitude = convertNum(altitudeArray,altitudeArraySize);
-          //Serial.println(altitude);
           info->ALTITUDE = altitude;
         }    
 
@@ -384,26 +407,4 @@ bool readGPS(GPSinfo *info){
     }  
   }
   return(messageIntegrity);
-}
-
-bool fix(){
-  static uint8_t index;
-  static uint32_t period,time;
-  bool fixFound;
-  if ((digitalRead(FIX_PIN)==1)&&(index==0)){ // Rising edge
-    index = 1;
-  }
-  else if ((digitalRead(FIX_PIN)==0)&&(index==1)){ // Falling edge
-    index = 0;
-    period = (millis()-time)/2; // Record the period
-    time = millis();
-  }
-
-  if (period<1500){ // A period of 1s means a fix hasn't been found
-    fixFound = false;
-  }
-  else { // A longer duration period means a fix has been found, may be around 15s for 2D and 30s for 3D but need to confirm
-    fixFound = true;
-  }
-  return(fixFound);
 }
