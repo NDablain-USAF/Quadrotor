@@ -4,8 +4,6 @@ MOTOR::MOTOR(uint8_t ENCODER1_PIN, uint8_t ENCODER2_PIN, uint8_t PWM_PIN, uint8_
   encoder1_pin = ENCODER1_PIN;
   encoder2_pin = ENCODER2_PIN;
   pwm_pin = PWM_PIN;
-  //mode1 = "RISING";
-  //mode2 = "FALLING";
   number = NUMBER;
   pinMode(encoder1_pin, INPUT_PULLUP);
   pinMode(encoder2_pin, INPUT_PULLUP);
@@ -15,26 +13,25 @@ MOTOR::MOTOR(uint8_t ENCODER1_PIN, uint8_t ENCODER2_PIN, uint8_t PWM_PIN, uint8_
 
 void MOTOR::attach(){
   if (number==1){
-    attachInterrupt(digitalPinToInterrupt(encoder1_pin), ISR1, RISING);
-    attachInterrupt(digitalPinToInterrupt(encoder2_pin), ISR2, FALLING);
+    attachInterrupt(digitalPinToInterrupt(encoder1_pin), ISR1, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(encoder2_pin), ISR2, CHANGE);
   }
   else if (number==2){
-    attachInterrupt(digitalPinToInterrupt(encoder1_pin), ISR3, RISING);
-    attachInterrupt(digitalPinToInterrupt(encoder2_pin), ISR4, FALLING);
+    attachInterrupt(digitalPinToInterrupt(encoder1_pin), ISR3, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(encoder2_pin), ISR4, CHANGE);
   }
   else if (number==3){
-    attachInterrupt(digitalPinToInterrupt(encoder1_pin), ISR5, RISING);
-    attachInterrupt(digitalPinToInterrupt(encoder2_pin), ISR6, FALLING);
+    attachInterrupt(digitalPinToInterrupt(encoder1_pin), ISR5, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(encoder2_pin), ISR6, CHANGE);
   }
   else if (number==4){
-    attachInterrupt(digitalPinToInterrupt(encoder1_pin), ISR7, RISING);
-    attachInterrupt(digitalPinToInterrupt(encoder2_pin), ISR8, FALLING);
+    attachInterrupt(digitalPinToInterrupt(encoder1_pin), ISR7, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(encoder2_pin), ISR8, CHANGE);
   }
 }
 
 void MOTOR::measure(){
-  uint8_t count;
-  noInterrupts();
+  double count;
   if (number==1){
     count = counter1+counter2;
     counter1 = 0;
@@ -55,75 +52,48 @@ void MOTOR::measure(){
     counter7 = 0;
     counter8 = 0;
   }
-  interrupts();
-  w_measured = ((double)count/(pulse_per_rev*2))*(1e6/(micros()-time[1]))*2*PI; // Find the rpm, 17 pulses per revolution, 60000 ms per minute, dt ms per interval. 
-  time[1] = micros(); // Reset for future interval 
+  double dt = micros()-time[0];
+  double c1 = 0.9;
+  double c2 = 1-c1;
+  w_measured = w_measured*c1 + ((count/(pulse_per_rev*4))*(1e6/dt)*2*PI*c2); // Find the rpm, 17 pulses per revolution, 60000 ms per minute, dt ms per interval. 
+  time[0] = micros(); // Reset for future interval 
 }
 
 void MOTOR::performance(){
   w_desired = reference[index[0]]; // Desired motor speed (rad/s)
-  uint8_t number_points = sizeof(window)/sizeof(window[0]);
-  window[index[2]] = w_measured;
-  index[2]++;
-  if (index[2]==number_points){
-    index[2] = 0;
-  }
-  uint32_t sum = 0;
-  for (byte i = 0;i<number_points;i++){
-    sum += window[i];
-  }
-  double moving_avg = sum/number_points; 
-  double e_ss = abs(moving_avg-w_desired); // Steady state error calculation
-  if (w_measured>largest){
-    largest = w_measured;
-  }
-  if ((abs(w_measured-w_desired)<10)&&(index[1]==0)){
-    t_rise = millis()-time[3];
-    index[1]++;
-  }
-  if ((abs(moving_avg-w_desired)<1.5)&&(index[3]<2)){
-    t_settle = millis()-time[2]; // Settling time calculation
-    percent_overshoot = ((largest-w_desired)/(w_desired))*100; // Percent overshoot calculation
-    time[2] = millis();
-    index[3]++;
-    if (index[0]<1){
+
+  if ((millis()-time[1])>intervalRef){
+    time[1] = millis();
+    if (index[0]<4){
       index[0]++;
-      time[3] = millis();
-      index[1] = 0;
+    }
+    else {
+      index[0] = 0;
     }
   }
-  /*
-  Serial.print("Steady State Error (rad/s): ");
-  Serial.print(e_ss);
-  Serial.print("  ");
-  Serial.print("Rise Time (ms): ");
-  Serial.print(t_rise);
-  Serial.print("  ");
-  Serial.print("Settling Time (ms): ");
-  Serial.print(t_settle);
-  Serial.print("  ");
-  Serial.print("Percent Overshoot (%): ");
-  Serial.println(percent_overshoot);
-*/
+  
+  if ((counter1+counter2)>=interval){
+    measure();
+  }
+
+  Serial.print(w_measured);
+  Serial.print(",");
+  Serial.print(w_desired);
+  Serial.print(",");
 }
 
-void MOTOR::DIMRAC(){
-  uint32_t dt = (micros()-time[0])/1e6; // In microseconds
-  time[0] = micros();
-  double wrefdot = (aref*wref)+(bref*w_desired);
-  wref += (wrefdot*dt);
-  double e = w_measured-wref;
-  double ahatdot = gama*w_measured*e;
-  if ((abs(bhat)>bmin)||((bhat==bmin)&&(u*e>0))){
-    bhatdot = gamb*u*e;
+void MOTOR::control(){
+  double dt = (micros()-time[2])/1e6;
+  if (dt>0.25){
+    dt = 0.25;
   }
-  else{
-    bhatdot = 0;
-  }
-  ahat += (ahatdot*dt);
-  bhat += (bhatdot*dt);
-  u = (1/bhat)*(((aref-ahat)*w_measured) + bref*w_desired);
-  uint8_t input = constrain(u,0,255); // u constrained to range of 0-255
+  e = w_desired-w_measured;
+  double xdot = ((k*e)-x)/dt;
+  x = k*e; 
+  double ydot = xdot + (p*y) - (z*x); // Lead compensation
+  y += (ydot*dt);
+  time[2] = micros();
+  input = constrain(y,0,255); // Range of pwm values
   Serial.println(input);
   analogWrite(pwm_pin,input);
 }

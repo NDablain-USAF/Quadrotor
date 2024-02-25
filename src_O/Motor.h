@@ -6,23 +6,21 @@
 class MOTOR {
   private:
     double
-      gama = 0.00003,
-      gamb = 0.00003,
-      bhat = 5, 
-      bmin = 1,
-      u = 0,
-      wref,
-      ahat,
-      bhatdot,
+      k = 25, // Compensator gain
+      z = -375, // Zero of compensator (s domain)
+      p = -800, // Pole of compensator (s domain)
+      y, // Output of compensator
+      x, // Output of controller
+      e, // Difference between reference and measured speed values
       w_measured,
       percent_overshoot;
+    uint32_t
+      time[3]; // time[0]: speed dt, time[1]: reference switch dt, time[2]: derivative control dt
     uint16_t
       w_desired,
-      largest,
-      t_rise,
-      t_settle,
-      reference[2] = {1200,950}, // Initial setpoint from rest, target step speed (rad/s)
-      window[25]; // Establish an array "window" of size n
+      intervalRef = 1e3, // How often to change reference value (ms)
+      interval = 34, // How often to measure speed (pulses)
+      reference[5] = {1200,1000,1500,792,950}; // Initial setpoint from rest, target step speed (rad/s)
     static volatile uint8_t
       counter1,
       counter2,
@@ -33,18 +31,13 @@ class MOTOR {
       counter7,
       counter8;
     uint8_t
-      bref = 7,
       pulse_per_rev = 17,
       encoder1_pin,
       encoder2_pin,
       pwm_pin,
       number,
+      input,
       index[4];
-    int8_t
-      aref = -7;
-    //char 
-    //  mode1[7] = "RISING",
-    //  mode2[8] = "FALLING";
     static void
       ISR1(void),
       ISR2(void),
@@ -60,11 +53,7 @@ class MOTOR {
       attach(),
       measure(),
       performance(),
-      DIMRAC();
-    uint32_t
-      time[4];
-    uint16_t
-      interval = 1e3;
+      control();
 };
 
 #endif
