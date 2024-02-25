@@ -1,15 +1,15 @@
 #include "Button.h"
 #include "Motor.h"
 // Button Setup
-const uint8_t BUTTON_POWER_PIN = 29;
-const uint8_t BUTTON_ON_PIN = 27;
-const uint8_t BUTTON_OFF_PIN = 25;
-const uint8_t CONTROL_PIN = 2; // Should be the same as PWM pin driving the motor
+const uint8_t BUTTON_POWER_PIN = 13;
+const uint8_t BUTTON_ON_PIN = 12;
+const uint8_t BUTTON_OFF_PIN = 11;
+const uint8_t CONTROL_PIN = 5; // Should be the same as PWM pin driving the motor
 BUTTON button(BUTTON_POWER_PIN, BUTTON_ON_PIN, BUTTON_OFF_PIN, CONTROL_PIN);
 // Motor Setup
-const uint8_t ENCODER1_PIN = 38; // Encoder pins must be interrupt pins
-const uint8_t ENCODER2_PIN = 40;
-const uint8_t PWM_PIN = 2;
+const uint8_t ENCODER1_PIN = 3; // Encoder pins must be interrupt pins
+const uint8_t ENCODER2_PIN = 2;
+const uint8_t PWM_PIN = 5;
 // Initialize the counter 1-8 variables in the class
 volatile uint8_t MOTOR::counter1;
 volatile uint8_t MOTOR::counter2;
@@ -37,10 +37,8 @@ void setup() {
 
 void loop() {
   button.receive();
-  if ((micros()-motor.time[1])>motor.interval){
-    motor.measure();
-  }
+
   motor.performance();
-  motor.DIMRAC();
+  motor.control();
 
 }
