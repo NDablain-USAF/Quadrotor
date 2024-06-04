@@ -1,6 +1,6 @@
 #include "Button.h"
 
-BUTTON::BUTTON(uint8_t POWER_PIN, uint8_t ON_PIN, uint8_t OFF_PIN, uint8_t CONTROL_PINS[4]){
+BUTTON::BUTTON(const uint8_t POWER_PIN, const uint8_t ON_PIN, const uint8_t OFF_PIN, const uint8_t CONTROL_PINS[4]){
     power_pin = POWER_PIN;
     on_pin = ON_PIN;
     off_pin = OFF_PIN;
@@ -17,10 +17,10 @@ void BUTTON::init(){
   for (uint8_t j=0;j<4;j++){
     pinMode(control_pins[j],OUTPUT);
   }
-  uint8_t i = 0;
+  i = 0;
 }
 
-void BUTTON::receive(){
+void BUTTON::receive(float EulerAngles[3]){
   while (i < 1){
     delay(1);
     for (uint8_t j=0;j<4;j++){
@@ -30,7 +30,10 @@ void BUTTON::receive(){
       ++i;
     }
   }
-  if (digitalRead(off_pin)==0){
+  if ((digitalRead(off_pin)==0)||(abs(EulerAngles[0])>(PI/12))||(abs(EulerAngles[1])>(PI/12))||(abs(EulerAngles[2])>PI/2)){
+    i = 0;
+  }
+  if (micros()>30e6){
     i = 0;
   }
 }
