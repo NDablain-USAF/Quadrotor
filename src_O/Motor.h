@@ -5,66 +5,36 @@
 
 class MOTOR {
   private:
-    double
-      gama = 0.00003,
-      gamb = 0.00003,
-      bhat = 5, 
-      bmin = 1,
-      u = 0,
-      wref,
-      ahat,
-      bhatdot,
-      w_measured,
-      percent_overshoot;
-    uint16_t
-      w_desired,
-      largest,
-      t_rise,
-      t_settle,
-      reference[2] = {1200,950}, // Initial setpoint from rest, target step speed (rad/s)
-      window[25]; // Establish an array "window" of size n
-    static volatile uint8_t
-      counter1,
-      counter2,
-      counter3,
-      counter4,
-      counter5,
-      counter6,
-      counter7,
-      counter8;
-    uint8_t
-      bref = 7,
-      pulse_per_rev = 17,
-      encoder1_pin,
-      encoder2_pin,
-      pwm_pin,
-      number,
-      index[4];
-    int8_t
-      aref = -7;
-    //char 
-    //  mode1[7] = "RISING",
-    //  mode2[8] = "FALLING";
-    static void
-      ISR1(void),
-      ISR2(void),
-      ISR3(void),
-      ISR4(void),
-      ISR5(void),
-      ISR6(void),
-      ISR7(void),
-      ISR8(void);
-  public:
-    MOTOR(uint8_t ENCODER1_PIN, uint8_t ENCODER2_PIN, uint8_t PWM_PIN, uint8_t NUMBER);
-    void 
-      attach(),
-      measure(),
-      performance(),
-      DIMRAC();
+    float
+      c1 = 0.95, // IIR constants for speed measurement
+      c2 = 1-c1,
+      Y_int, 
+      Y_int2, 
+      X, 
+      X_int, 
+      X_int2, 
+      p_lag = -0.1; // Pole of lag compensator
     uint32_t
-      time[4];
+      time[2]; // time[0]: measurement dt, time[1]: compensator dt
+    int16_t
+      Y,
+      z_lead = -25, // -Zero of lead compensator 
+      z_lag = -2, // Zero of lag compensator
+      p_lead = -45, // Pole of lead compensator 
+      e; // Difference between reference and measured speed values
     uint16_t
-      interval = 1e3;
+      w_measured,
+      K = 5, // Gain of lead compensator
+      interval = 1e4; // How often to measure speed (microseconds)
+    uint8_t
+      CPR = 17, // Counts per revolution, RS555EN 24V motor has 17 pulses per revolution
+      pwm_pin,
+      input; // Duty cycle of pwm
+  public:
+    MOTOR(uint8_t PWM_PIN);
+    void 
+      measure(volatile uint16_t **Count),
+      control(int16_t w_desired, volatile uint16_t *Count);
 };
 
 #endif

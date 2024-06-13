@@ -5,14 +5,15 @@
 
 class BUTTON{
   private:
-    uint8_t power_pin;
-    uint8_t on_pin;
-    uint8_t off_pin;
-    uint8_t control_pin;
-    uint8_t i;
+    uint8_t 
+      power_pin,
+      on_pin,
+      off_pin,
+      control_pins[4],
+      i;
   public:
-    BUTTON(uint8_t POWER_PIN, uint8_t ON_PIN, uint8_t OFF_PIN, uint8_t CONTROL_PIN);
-    void receive();
+    BUTTON(const uint8_t POWER_PIN, const uint8_t ON_PIN, const uint8_t OFF_PIN, const uint8_t CONTROL_PINS[4]);
+    void receive(float EulerAngles[3]);
     void init();
 };
 
