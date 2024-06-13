@@ -5,7 +5,24 @@ IMU::IMU(){
 }
 
 void IMU::update(bool *calStatus){
-  read();
+  // Read
+  int8_t i = -1;
+  Wire.beginTransmission(IMUAddress);
+  Wire.write(0x3B); // Accel x Higher Bit Address
+  Wire.endTransmission();
+  Wire.requestFrom(IMUAddress,14);
+  while(Wire.available()){
+    DataAG[++i] = Wire.read();
+  }
+  Wire.beginTransmission(MAGAddress);
+  Wire.write(0x03);
+  Wire.endTransmission();
+  i = -1;
+  Wire.requestFrom(MAGAddress, 7);
+  while (Wire.available()){
+    DataM[++i] = Wire.read();
+  }
+  // Update
   int16_t x = DataAG[0]<<8;
   x += DataAG[1];
   int32_t X = x*b2mg;
@@ -44,7 +61,7 @@ void IMU::update(bool *calStatus){
   magField[2] = (magField[2]*c1Mag) + ((float)mz*mres*magZcoef*c2Mag);
 
   if (calWait==1000){
-    for (uint8_t i=0;i<3;i++){
+    for (int8_t i=-1;i<3;++i){
       gyroBias[i] = angularRates[i];
       accelBias[i] = accel[i];
       if (i<2){
@@ -60,25 +77,6 @@ void IMU::update(bool *calStatus){
   else if (calWait<1000){
     ++calWait;
     *calStatus = false;
-  }
-}
-
-void IMU::read(){
-  uint8_t i = 0;
-  Wire.beginTransmission(IMUAddress);
-  Wire.write(0x3B); // Accel x Higher Bit Address
-  Wire.endTransmission();
-  Wire.requestFrom(IMUAddress,14);
-  while(Wire.available()){
-    DataAG[i++] = Wire.read();
-  }
-  Wire.beginTransmission(MAGAddress);
-  Wire.write(0x03);
-  Wire.endTransmission();
-  i = 0;
-  Wire.requestFrom(MAGAddress, 7);
-  while (Wire.available()){
-    DataM[i++] = Wire.read();
   }
 }
 
@@ -173,6 +171,12 @@ void IMU::Test(uint8_t *RESET_PIN){
 }
 
 void IMU::Kalman_filter_attitude(float EulerAngles[3], int16_t w[3]){
+  // This function implements an infinite horizon Kalman filter to estimate the Euler Angles (roll,pitch,yaw)...
+  // of the drone. Gyro measurements are treated as inputs, this moves the trig. nonlinearities to the B matrix (xdot=Ax+Bu)..
+  // so we can treat the system as Linear Time Invariant (LTI). It is assumed that the Euler Angles can be measured by finding the...
+  // gravity vector and comparing its components for roll and pitch and using magnetic north from the magnetometer for yaw...
+  // These measurements are passed through IIRs which act as digital low pass filters with very low cutoff frequencies.
+  // This introduces phase lag, the Kalman filter compensates for this. Offline simulations were performed in Matlab to find the Kalman gain.
   w_rad[0] = angularRates[0]*d2r; // Convert deg/s to rad/s
   w_rad[1] = angularRates[1]*d2r;
   w_rad[2] = angularRates[2]*d2r;
@@ -182,18 +186,22 @@ void IMU::Kalman_filter_attitude(float EulerAngles[3], int16_t w[3]){
   // Measure
   float theta_measured = atan2(accelGrav[0],sqrt(pow(accelGrav[1],2) + pow(accelGrav[2],2))); 
   float phi_measured = atan2(accelGrav[1],accelGrav[2]); 
+  // A DCM is used to convert body frame magnetometer readings to inertial frame, rather than propogate DCM a continuous update of the...
+  // relevant entries is made using Euler Angles.
   float mag_x = cos(-EulerAngles[0])*magField[0] + sin(EulerAngles[1])*sin(-EulerAngles[0])*magField[1] - cos(EulerAngles[1])*sin(-EulerAngles[0])*magField[2];
   float mag_y = cos(EulerAngles[1])*magField[1] + sin(EulerAngles[1])*magField[2];
-  if (onetime_KF==0){
+  if (onetime_KF==0){ // Zero out the yaw
     psi_offset = atan2(mag_y,mag_x);
     onetime_KF++;
   }
+  // IIR for yaw
   float psi_measured = c1psi*EulerAngles[2] + c2psi*(atan2(mag_y,mag_x)-psi_offset);
   float dt = (micros()-timelast[0])/1e6;
-  if (dt>0.05){
+  if (dt>0.05){ // Limit large integration steps
     dt = 0.05;
   }
   timelast[0] = micros();
+  // Because the measurements happen at the same time as the inputs are found, the prediction and update steps always occur at the same time.
   // Predict
   float phi_hat_k1_k0 = EulerAngles[0] + (w_rad[0] + sin(phi_measured)*tan(theta_measured)*w_rad[1] + cos(phi_measured)*tan(theta_measured)*w_rad[2])*dt;
   float theta_hat_k1_k0 = EulerAngles[1] + (cos(phi_measured)*w_rad[1] - sin(phi_measured)*w_rad[2])*dt;
@@ -205,6 +213,10 @@ void IMU::Kalman_filter_attitude(float EulerAngles[3], int16_t w[3]){
 }
 
 void IMU::Kalman_filter_altitude(float h[2], float *height_Measured, float EulerAngles[3], uint8_t mode){
+  // This function implements an infite horizon Kalman filter to estimate the height of the drone above the ground.
+  // Similar to the attitude Kalman filter, nonlinearities have been moved to the input matrix by treating the accelerometer...
+  // measurements as inputs to the system. The system becomes LTI and a constant Kalman gain is found (and luckily it's unity!).
+  // The vertical velocity is also estimated as it is included in the LQR controller
   float dt = (micros()-timelast[1])/1e6;
   if (dt>0.2){
     dt = 0.2;
