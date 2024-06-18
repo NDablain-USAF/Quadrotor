@@ -4,13 +4,13 @@ Modeling, design, and implementation of an autonomous quadrotor using a mix of o
 Modeling and design work is performed in Matlab/SIMULINK under folder "Design".
 <br />
 <br />
-Implementation is done on Arduino Uno R3 microcontroller using C/C++ under folder "src_O".
+Implementation is done on Arduino Uno R3 microcontroller using C++ in the Arduino IDE. Source code without Arduino.h is under folder "src_O".
 <br />
 <br />
 Reference documents including datasheets are located under folder "References".
 <br />
 <br />
-Plots involved in motor system identification and the physical drone are located under folder "Pictures".
+Plots involved in motor system identification and the physical drone construction are located under folder "Pictures".
 <br />
 <br />
 See Wiki tab for detailed view on components and design.
