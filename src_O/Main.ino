@@ -17,10 +17,11 @@ const uint8_t PWM_PIN[4] = {3,5,6,9}; // Implements motor control
 volatile uint16_t count[4]; // Stores encoder counts
 volatile uint8_t pulse_check[4]; // Ensures ISR increments correct encoder
 int16_t MotorSpeeds[4];
-MOTOR motor1(PWM_PIN[0]);
-MOTOR motor2(PWM_PIN[1]);
-MOTOR motor3(PWM_PIN[2]);
-MOTOR motor4(PWM_PIN[3]);
+uint16_t w_test = 450;
+MOTOR motor1(PWM_PIN[0],w_test);
+MOTOR motor2(PWM_PIN[1],w_test);
+MOTOR motor3(PWM_PIN[2],w_test);
+MOTOR motor4(PWM_PIN[3],w_test);
 // IMU Setup
 float EulerAngles[3];
 int16_t w[3];
@@ -30,11 +31,9 @@ IMU IMU;
 // Attitude Controller Setup
 LQR LQR;
 // Barometer Setup
-float h[2];
 float height_measured;
 uint32_t timelast;
-uint8_t mode; // Predict (0), or update (1), for height Kalman Filter
-float r_altitude = 0.5;
+float r_altitude = 1.0;
 BAROMETER Barometer;
 
 void setup() {
@@ -47,10 +46,11 @@ void loop() {
   if ((calStatus[0]==true)&&(calStatus[1]==true)){
     Run();
   }
-  Print();
+  //Print();
 }
 
 void Initialize(){
+  button.receive();
   PORTB |= 0b00000001;
   Serial.begin(115200);
   IMU.Initialize();
@@ -60,34 +60,52 @@ void Initialize(){
   pinMode(RESET_PIN,OUTPUT);
   IMU.Test(&RESET_PIN);
   Barometer.Test(&RESET_PIN);
+  uint8_t motor_cal = 0;
+  while (motor_cal==0){
+    motor1.control(w_test,&count[0]);
+    motor1.test(&RESET_PIN,&motor_cal);
+  }
+  motor_cal = 0;
+  while (motor_cal==0){
+    motor2.control(w_test,&count[1]);
+    motor2.test(&RESET_PIN,&motor_cal);
+  }
+  motor_cal = 0;
+  while (motor_cal==0){
+    motor3.control(w_test,&count[2]);
+    motor3.test(&RESET_PIN,&motor_cal);
+  }
+  motor_cal = 0;
+  while (motor_cal==0){
+    motor4.control(w_test,&count[3]);
+    motor4.test(&RESET_PIN,&motor_cal);
+  }
 }
 
 void Calibrate(){
-  //button.receive(EulerAngles);
+  button.sample(EulerAngles);
   IMU.update(&calStatus[0]);
   if ((millis()-timelast)>80){ // Data rate of barometer is 12.5 Hz (80ms)
     Barometer.update(&height_measured,&calStatus[1]);
     timelast = millis();
-    mode = 1;
   }
 }
 
 void Run(){
   IMU.Kalman_filter_attitude(EulerAngles, w);
-  IMU.Kalman_filter_altitude(h,&height_measured,EulerAngles,mode);
-  LQR.control_altitude(h, &r_altitude);
+  LQR.control_altitude(&height_measured, &r_altitude);
   LQR.control_attitude(r_attitude, MotorSpeeds, EulerAngles, w);
   Run_Motor(MotorSpeeds);
 }
 
 void Print(){
   static uint8_t time;
-  if (time>25){
-     for (uint8_t i=0;i<4;i++){
-       Serial.print(MotorSpeeds[i]);
-       Serial.print(",");
-     }
-    Serial.println(h[0]);
+  if (time>5){
+      for (uint8_t i=0;i<4;i++){
+        Serial.print(MotorSpeeds[i]);
+        Serial.print(",");
+      }
+    Serial.println(r_altitude);
     time = 0;
   }
   time++;
