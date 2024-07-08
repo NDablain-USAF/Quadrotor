@@ -31,3 +31,19 @@ void BUTTON::receive(){
     }
   }
 }
+
+void BUTTON::sample(float EulerAngles[3]){
+  // The motors are disabled under the following conditions...
+  //        1: The off_pin is sent low via a mechanical button press
+  //        2: The roll or pitches angles exceed +-pi/12 radians (15 degrees)
+  //        3: The yaw angle exceeds +-pi/2 radians (90 degrees)
+  //        4: 60 seconds have passed since SYSTEM START (Not when the mechanical on_pin is pressed)
+  if ((digitalRead(off_pin)==0)||(abs(EulerAngles[0])>(PI/12))||(abs(EulerAngles[1])>(PI/12))||(abs(EulerAngles[2])>PI/2)){
+    i = 0;
+    receive();
+  }
+  if (micros()>60e6){
+    i = 0;
+    receive();
+  }
+}
