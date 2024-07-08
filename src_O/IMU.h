@@ -52,8 +52,7 @@ class IMU {
       Initialize(),
       Test(uint8_t *RESET_PIN),
       update(bool *calStatus),
-      Kalman_filter_attitude(float EulerAngles[3], int16_t w[3]),
-      Kalman_filter_altitude(float h[2], float *height_Measured, float EulerAngles[3],uint8_t mode);
+      Kalman_filter_attitude(float EulerAngles[3], int16_t w[3]);
 };
 
 #endif
