@@ -16,7 +16,7 @@ class IMU {
       // Filter constants, 0-1, increase c1 to lower cutoff frequency
       c1AccelGrav = 0.99, // Use for gravity vector from accelerometers 0.998
       c2AccelGrav = 1-c1AccelGrav,
-      c1Mag = 0.999,
+      c1Mag = 0.995,
       c2Mag = 1-c1Mag,
       c1psi = 0.95,
       c2psi = 1-c1psi,
