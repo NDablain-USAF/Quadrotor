@@ -5,24 +5,7 @@ IMU::IMU(){
 }
 
 void IMU::update(bool *calStatus){
-  // Read
-  int8_t i = -1;
-  Wire.beginTransmission(IMUAddress);
-  Wire.write(0x3B); // Accel x Higher Bit Address
-  Wire.endTransmission();
-  Wire.requestFrom(IMUAddress,14);
-  while(Wire.available()){
-    DataAG[++i] = Wire.read();
-  }
-  Wire.beginTransmission(MAGAddress);
-  Wire.write(0x03);
-  Wire.endTransmission();
-  i = -1;
-  Wire.requestFrom(MAGAddress, 7);
-  while (Wire.available()){
-    DataM[++i] = Wire.read();
-  }
-  // Update
+  read();
   int16_t x = DataAG[0]<<8;
   x += DataAG[1];
   int32_t X = x*b2mg;
@@ -40,10 +23,10 @@ void IMU::update(bool *calStatus){
   accelGrav[2] = accelGrav[2]*c1AccelGrav + (Z-accelGravBias[2])*c2AccelGrav;
   float q = DataAG[8]<<8;
   q += (DataAG[9]/131);
-  q = (q/gyroRange)-gyroBias[1];
+  q = (q/gyroRange)-gyroBias[0];
   float p = DataAG[10]<<8;
   p += (DataAG[11]/131);
-  p = (p/gyroRange)-gyroBias[0];
+  p = (p/gyroRange)-gyroBias[1];
   float r = DataAG[12]<<8;
   r += (DataAG[13]/131);
   r = (r/gyroRange)-gyroBias[2];
@@ -59,9 +42,8 @@ void IMU::update(bool *calStatus){
   magField[0] = (magField[0]*c1Mag) + ((float)mx*mres*magXcoef*c2Mag);
   magField[1] = (magField[1]*c1Mag) + ((float)my*mres*magYcoef*c2Mag);
   magField[2] = (magField[2]*c1Mag) + ((float)mz*mres*magZcoef*c2Mag);
-
   if (calWait==1000){
-    for (int8_t i=-1;i<3;++i){
+    for (uint8_t i=0;i<3;i++){
       gyroBias[i] = angularRates[i];
       accelBias[i] = accel[i];
       if (i<2){
@@ -77,6 +59,25 @@ void IMU::update(bool *calStatus){
   else if (calWait<1000){
     ++calWait;
     *calStatus = false;
+  }
+}
+
+void IMU::read(){
+  uint8_t i = 0;
+  Wire.beginTransmission(IMUAddress);
+  Wire.write(0x3B); // Accel x Higher Bit Address
+  Wire.endTransmission();
+  Wire.requestFrom(IMUAddress,14);
+  while(Wire.available()){
+    DataAG[i++] = Wire.read();
+  }
+  Wire.beginTransmission(MAGAddress);
+  Wire.write(0x03);
+  Wire.endTransmission();
+  i = 0;
+  Wire.requestFrom(MAGAddress, 7);
+  while (Wire.available()){
+    DataM[i++] = Wire.read();
   }
 }
 
@@ -190,14 +191,14 @@ void IMU::Kalman_filter_attitude(float EulerAngles[3], int16_t w[3]){
   // relevant entries is made using Euler Angles.
   float mag_x = cos(-EulerAngles[0])*magField[0] + sin(EulerAngles[1])*sin(-EulerAngles[0])*magField[1] - cos(EulerAngles[1])*sin(-EulerAngles[0])*magField[2];
   float mag_y = cos(EulerAngles[1])*magField[1] + sin(EulerAngles[1])*magField[2];
-  if (onetime_KF==0){ // Zero out the yaw
+  if (onetime_KF==0){
     psi_offset = atan2(mag_y,mag_x);
     onetime_KF++;
   }
   // IIR for yaw
   float psi_measured = c1psi*EulerAngles[2] + c2psi*(atan2(mag_y,mag_x)-psi_offset);
   float dt = (micros()-timelast[0])/1e6;
-  if (dt>0.05){ // Limit large integration steps
+  if (dt>0.05){
     dt = 0.05;
   }
   timelast[0] = micros();
@@ -210,26 +211,4 @@ void IMU::Kalman_filter_attitude(float EulerAngles[3], int16_t w[3]){
   EulerAngles[0] = phi_hat_k1_k0 + L_Euler*(phi_measured-phi_hat_k1_k0);
   EulerAngles[1] = theta_hat_k1_k0 + L_Euler*(theta_measured-theta_hat_k1_k0);
   EulerAngles[2] = psi_hat_k1_k0 + L_Euler*(psi_measured-psi_hat_k1_k0);
-}
-
-void IMU::Kalman_filter_altitude(float h[2], float *height_Measured, float EulerAngles[3], uint8_t mode){
-  // This function implements an infite horizon Kalman filter to estimate the height of the drone above the ground.
-  // Similar to the attitude Kalman filter, nonlinearities have been moved to the input matrix by treating the accelerometer...
-  // measurements as inputs to the system. The system becomes LTI and a constant Kalman gain is found (and luckily it's unity!).
-  // The vertical velocity is also estimated as it is included in the LQR controller
-  float dt = (micros()-timelast[1])/1e6;
-  if (dt>0.2){
-    dt = 0.2;
-  }
-  timelast[1] = micros();
-  // Predict
-  float height_dot_hat_k1_k0 = h[1] + (-sin(EulerAngles[0])*accel[0] + cos(EulerAngles[1])*sin(EulerAngles[0])*accel[1] + cos(EulerAngles[1])*cos(EulerAngles[0])*accel[2])*(dt/1e3);
-  float height_hat_k1_k0 = h[0] + height_dot_hat_k1_k0*dt;
-  if (mode==0){ // Use prediction if between measurement steps
-    h[1] = height_hat_k1_k0;
-  }
-  else if (mode==1){ // Incorporate measurement, Kalman Gain was found to be unity, assume no measurement available of rate of change of altitude
-    h[0] = *height_Measured;
-    h[1] += *height_Measured-height_hat_k1_k0;
-  }
 }
