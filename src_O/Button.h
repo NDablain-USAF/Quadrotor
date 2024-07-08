@@ -9,12 +9,15 @@ class BUTTON{
       power_pin,
       on_pin,
       off_pin,
-      control_pins[4],
+      control_pins[4];
+    volatile uint8_t
       i;
   public:
     BUTTON(const uint8_t POWER_PIN, const uint8_t ON_PIN, const uint8_t OFF_PIN, const uint8_t CONTROL_PINS[4]);
-    void receive(float EulerAngles[3]);
-    void init();
+    void 
+      receive(),
+      sample(float EulerAngles[3]),
+      init();
 };
 
 #endif
